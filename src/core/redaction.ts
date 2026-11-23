@@ -9,6 +9,16 @@ const SECRET_PATTERNS: readonly RegExp[] = [
   /\b(?:auth\.json|credentials\.json|\.claude(?:\\|\/)|\.codex(?:\\|\/))\b/gi,
   /https?:\/\/[^\s]*(?:oauth|authorize|device)[^\s]*/gi,
   /\b[A-Z0-9]{4}(?:-[A-Z0-9]{4}){1,3}\b/g,
+  // Fork additions: credential shapes a development Host routinely holds, which
+  // the prefixes above miss. GitHub classic/fine-grained/app tokens, JWTs (which
+  // is what Supabase anon and service-role keys are), AWS access key ids, Slack
+  // tokens, Stripe keys, and PEM private-key blocks.
+  /\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,})\b/g,
+  /\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g,
+  /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g,
+  /\bxox[abposr]-[A-Za-z0-9-]{10,}\b/g,
+  /\b(?:rk|pk)_(?:live|test)_[A-Za-z0-9]{16,}\b/g,
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g,
 ]
 
 export function redactText(value: string, maxLength = MAX_TEXT): string {

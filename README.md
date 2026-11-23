@@ -2,6 +2,10 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
+> **Fork:** this is `siirty`'s adaptation for a remote Linux workstation —
+> Codex 0.167.x, `bypass` off by default, an enforced Codex sandbox, Host browsing
+> off by default, wider redaction. See [FORK.md](FORK.md) for every difference.
+
 Drive the **Claude Code** and **Codex** installations already on your machine from
 the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) browser UI.
 
@@ -47,7 +51,7 @@ launching the `claude` executable resolved from the Host `PATH`.
 | Node.js | `^22.19.0` or `>=24.0.0` |
 | pnpm | `11.7.0` |
 | Claude Code CLI (optional) | `>=2.1.220 <2.2.0` |
-| Codex CLI (optional) | `>=0.147.0 <0.164.0` |
+| Codex CLI (optional) | `>=0.167.0 <0.168.0` (fork) |
 | Host OS | Windows 10/11 x64, macOS 13+, Linux x64/arm64 |
 
 At least one of Claude Code or Codex must be installed **and already logged in**
@@ -167,7 +171,9 @@ config block, so keep every key when changing one — see
 | Key | Default | Meaning |
 | --- | ---: | --- |
 | `allowExperimentalVersions` | `false` | Permit product versions classified `unknown`. |
-| `allowHostBrowsing` | `true` | Let the composer's file button browse the Host beyond the working directory. Off omits the route entirely. |
+| `allowBypassMode` | `false` | Fork: offer and honour `bypass`. Off refuses it and runs stored `bypass` sessions as `manual`. |
+| `codexSandbox` | `workspace-write` | Fork: sandbox sent to Codex per thread; `inherit` leaves the Host config in force. |
+| `allowHostBrowsing` | `false` (fork) | Let the composer's file button browse the Host beyond the working directory. Off omits the route entirely. |
 | `allowWorkspaceWrites` | `true` | Let the side panel create, rename, delete and edit files in the working directory. Off hides those controls. |
 | `enableDictation` | `false` | Offer dictation in the composer. Off omits the button. The only route here whose audio leaves the machine, by the browser's doing, so it is off unless a Profile asks. |
 | `panelLockAbsoluteMs` | `28800000` (8h) | How long one unlock of the panel lasts, regardless of use. |
@@ -263,7 +269,7 @@ claim it.
 ## Licensing and terms
 
 
-MIT. Codex App Server schemas were generated from Codex `0.163.0`; Codex is
+MIT. Codex App Server schemas were generated from Codex `0.167.1` (fork; upstream used `0.163.0`); Codex is
 distributed under Apache-2.0. The Claude Agent SDK declares
 `SEE LICENSE IN README.md`, and Anthropic documents Agent SDK use under its
 Commercial Terms. This project distributes no vendor binaries and grants no

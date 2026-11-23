@@ -16,7 +16,7 @@ import { listHostDirectory } from './core/host-browse.ts'
 import { readRepository } from './core/repository.ts'
 import { listWorkspaceDiff, readFileDiff } from './core/workspace-diff.ts'
 import { ClaudeProviderAdapter } from './providers/claude.ts'
-import { CodexProviderAdapter } from './providers/codex.ts'
+import { CodexProviderAdapter, type CodexSandboxMode } from './providers/codex.ts'
 import { FakeProviderAdapter } from './providers/fake.ts'
 import type {
   BridgeCatalogRequest,
@@ -65,6 +65,7 @@ import type {
   BridgeSessionReadResult,
   BridgeSessionSendRequest,
   BridgeSessionView,
+  BridgePermissionModeView,
   NativeProviderView,
   ProviderId,
 } from './types.ts'
@@ -74,13 +75,27 @@ export type * from './types.ts'
 export interface Config {
   allowExperimentalVersions?: boolean
   /**
+   * Whether sessions may be put in `bypass`, which skips every approval (Claude
+   * `bypassPermissions`, Codex `approvalPolicy: never`).
+   *
+   * Fork default: off. When off the mode is not offered, requests for it are
+   * refused, and a stored session still set to it runs as `manual`.
+   */
+  allowBypassMode?: boolean
+  /**
+   * Sandbox mode sent to Codex on every thread start and resume, or `inherit` to
+   * leave it to the Host's Codex config.
+   *
+   * Fork default: `workspace-write`, so the approval mode alone never decides how
+   * far a Codex turn can reach.
+   */
+  codexSandbox?: CodexSandboxMode | 'inherit'
+  /**
    * Whether the composer may browse the Host outside the session's working
    * directory.
    *
-   * On by default, because the Harness is a loopback tool on the operator's own
-   * machine and this is a read they asked for. Turn it off for a deployment where
-   * the browser reaches the Host across a network: it is the panel's widest read,
-   * and a Profile serving remote clients should decide about it explicitly.
+   * Fork default: off. This is the panel's widest read, and this fork targets a
+   * Host reached across a network (SSH tunnel or Tailscale), not a loopback desk.
    */
   allowHostBrowsing?: boolean
   /**
@@ -125,6 +140,8 @@ export interface Config {
 
 interface ResolvedConfig {
   readonly allowExperimentalVersions: boolean
+  readonly allowBypassMode: boolean
+  readonly codexSandbox: CodexSandboxMode | 'inherit'
   readonly allowHostBrowsing: boolean
   readonly allowWorkspaceWrites: boolean
   readonly enableDictation: boolean
@@ -168,7 +185,11 @@ export class LocalAgentBridgeService extends TypertRemoteService {
 
   static Config: z<Config> = z.object({
     allowExperimentalVersions: z.boolean().default(false),
-    allowHostBrowsing: z.boolean().default(true),
+    allowBypassMode: z.boolean().default(false),
+    codexSandbox: z.union([
+      z.const('workspace-write'), z.const('read-only'), z.const('danger-full-access'), z.const('inherit'),
+    ]).default('workspace-write'),
+    allowHostBrowsing: z.boolean().default(false),
     allowWorkspaceWrites: z.boolean().default(true),
     enableDictation: z.boolean().default(false),
     enableFakeProvider: z.boolean().default(false),
@@ -180,7 +201,9 @@ export class LocalAgentBridgeService extends TypertRemoteService {
     processGraceMs: z.number().min(500).max(30_000).default(3_000),
   }).default({
     allowExperimentalVersions: false,
-    allowHostBrowsing: true,
+    allowBypassMode: false,
+    codexSandbox: 'workspace-write',
+    allowHostBrowsing: false,
     allowWorkspaceWrites: true,
     enableDictation: false,
     enableFakeProvider: false,
@@ -225,7 +248,9 @@ export class LocalAgentBridgeService extends TypertRemoteService {
     super(ctx, 'localAgentBridge')
     this.config = {
       allowExperimentalVersions: config.allowExperimentalVersions ?? false,
-      allowHostBrowsing: config.allowHostBrowsing ?? true,
+      allowBypassMode: config.allowBypassMode ?? false,
+      codexSandbox: config.codexSandbox ?? 'workspace-write',
+      allowHostBrowsing: config.allowHostBrowsing ?? false,
       allowWorkspaceWrites: config.allowWorkspaceWrites ?? true,
       enableDictation: config.enableDictation ?? false,
       enableFakeProvider: config.enableFakeProvider ?? false,
@@ -248,6 +273,15 @@ export class LocalAgentBridgeService extends TypertRemoteService {
    * Profile. Probing is two `--version` reads and does not touch a running
    * session; a product that became admissible gains its adapter here.
    */
+  /**
+   * The modes this Profile lets the browser choose for a product: the product's
+   * own, minus `bypass` unless `allowBypassMode` is set.
+   */
+  private admittedModes(id: ProviderId): readonly BridgePermissionModeView[] {
+    const modes = permissionModesFor(id)
+    return this.config.allowBypassMode ? modes : modes.filter(entry => entry.mode !== 'bypass')
+  }
+
   private async discoverProviders(): Promise<void> {
     const discovered = await Promise.all([
       discoverProvider(this.ctx.subprocess, 'codex', {
@@ -263,13 +297,21 @@ export class LocalAgentBridgeService extends TypertRemoteService {
       admissible.add(provider.id)
       if (this.adapters.has(provider.id)) continue
       this.adapters.set(provider.id, provider.id === 'codex'
-        ? new CodexProviderAdapter(this.ctx.subprocess, provider.executablePath, this.config.processGraceMs)
+        ? new CodexProviderAdapter(
+          this.ctx.subprocess,
+          provider.executablePath,
+          this.config.processGraceMs,
+          this.config.codexSandbox === 'inherit' ? null : this.config.codexSandbox,
+        )
         : new ClaudeProviderAdapter(this.ctx.subprocess, provider.executablePath, this.config.processGraceMs))
     }
     // Readiness follows this probe, not the presence of an adapter: an adapter
     // retained for a running session must not advertise a product the operator
     // has since downgraded.
-    this.providerViews = discovered.map(provider => publicProvider(provider, admissible.has(provider.id)))
+    this.providerViews = discovered.map(provider => {
+      const view = publicProvider(provider, admissible.has(provider.id))
+      return { ...view, permissionModes: this.admittedModes(provider.id) }
+    })
     if (this.config.enableFakeProvider) {
       if (!this.adapters.has('fake')) this.adapters.set('fake', new FakeProviderAdapter())
       this.providerViews.push({
@@ -311,6 +353,7 @@ export class LocalAgentBridgeService extends TypertRemoteService {
       providers: this.adapters,
       eventRetention: this.config.eventRetention,
       longPollMaxMs: this.config.longPollMaxMs,
+      allowBypassMode: this.config.allowBypassMode,
       resolveWorkspace: async (workspaceId) => {
         // The bridge's own directory list is authoritative. A session persisted
         // before directories existed holds a Harness workspace id, so that is
@@ -444,7 +487,7 @@ export class LocalAgentBridgeService extends TypertRemoteService {
     if (provider.health !== 'ready') throw new BridgeError('UNSUPPORTED_VERSION')
     if (
       request.permissionMode !== undefined
-      && !permissionModesFor(request.providerId).some(entry => entry.mode === request.permissionMode)
+      && !this.admittedModes(request.providerId).some(entry => entry.mode === request.permissionMode)
     ) {
       throw new BridgeError('INVALID_REQUEST')
     }
@@ -518,7 +561,7 @@ export class LocalAgentBridgeService extends TypertRemoteService {
     // Refused rather than approximated: the panel only offers modes the product
     // can honour, so a request for another one means something is out of step,
     // and quietly storing it would show a mode the agent is not obeying.
-    if (!permissionModesFor(session.providerId).some(entry => entry.mode === request.mode)) {
+    if (!this.admittedModes(session.providerId).some(entry => entry.mode === request.mode)) {
       throw new BridgeError('INVALID_REQUEST')
     }
     return await engine.setPermissionMode(request.bridgeSessionId, request.mode)

@@ -139,6 +139,19 @@ export class PrivacyGate {
   private verifier: PrivacyVerifier | null
   private failures = 0
   private lockedOutUntil = 0
+  /**
+   * Fork addition: password checks run one at a time. The lockout is read before
+   * the ~100ms derivation and written after it, so concurrent guesses would all
+   * pass the read before the first failure lands; serialising them makes the
+   * fifth wrong guess lock out the sixth no matter how they were sent.
+   */
+  private checking: Promise<unknown> = Promise.resolve()
+
+  private serialized<T>(task: () => Promise<T>): Promise<T> {
+    const run = this.checking.then(task, task)
+    this.checking = run.catch(() => undefined)
+    return run
+  }
 
   /**
    * @param limits - lifetimes and the minimum password length.
@@ -203,7 +216,11 @@ export class PrivacyGate {
    * @throws BridgeError PASSWORD_ATTEMPTS_EXCEEDED while a lockout stands,
    *   PASSWORD_REJECTED for a wrong password, INVALID_REQUEST when no password is set.
    */
-  async unlock(password: string, now: number = Date.now()): Promise<string> {
+  unlock(password: string, now?: number): Promise<string> {
+    return this.serialized(() => this.unlockNow(password, now ?? Date.now()))
+  }
+
+  private async unlockNow(password: string, now: number): Promise<string> {
     if (this.verifier === null) throw new BridgeError('INVALID_REQUEST')
     if (this.lockedOutUntil > now) throw new BridgeError('PASSWORD_ATTEMPTS_EXCEEDED')
 
@@ -234,7 +251,11 @@ export class PrivacyGate {
    * @throws BridgeError PASSWORD_REJECTED when `current` is wrong,
    *   INVALID_REQUEST when it is missing or `next` is too short.
    */
-  async setPassword(current: string | null, next: string, now: number = Date.now()): Promise<void> {
+  setPassword(current: string | null, next: string, now?: number): Promise<void> {
+    return this.serialized(() => this.setPasswordNow(current, next, now ?? Date.now()))
+  }
+
+  private async setPasswordNow(current: string | null, next: string, now: number): Promise<void> {
     if (this.verifier !== null) {
       if (current === null || current.length === 0) throw new BridgeError('INVALID_REQUEST')
       if (this.lockedOutUntil > now) throw new BridgeError('PASSWORD_ATTEMPTS_EXCEEDED')
@@ -270,7 +291,11 @@ export class PrivacyGate {
    * @throws BridgeError PASSWORD_REJECTED when it is wrong, INVALID_REQUEST when
    *   no password is set.
    */
-  async clearPassword(current: string, now: number = Date.now()): Promise<void> {
+  clearPassword(current: string, now?: number): Promise<void> {
+    return this.serialized(() => this.clearPasswordNow(current, now ?? Date.now()))
+  }
+
+  private async clearPasswordNow(current: string, now: number): Promise<void> {
     if (this.verifier === null) throw new BridgeError('INVALID_REQUEST')
     if (this.lockedOutUntil > now) throw new BridgeError('PASSWORD_ATTEMPTS_EXCEEDED')
     if (!await this.matches(current, this.verifier)) {
