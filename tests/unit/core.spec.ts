@@ -56,34 +56,32 @@ describe('redaction', () => {
 
 describe('version compatibility', () => {
   it('parses product output and pins the verified versions', () => {
-    expect(parseProductVersion('codex-cli 0.163.0')).toBe('0.163.0')
+    expect(parseProductVersion('codex-cli 0.167.1')).toBe('0.167.1')
     expect(parseProductVersion('Claude Code v2.1.303')).toBe('2.1.303')
     expect(parseProductVersion('unknown')).toBeNull()
-    expect(supportedVersionRange('codex')).toBe('>=0.147.0 <0.164.0')
+    expect(supportedVersionRange('codex')).toBe('>=0.167.0 <0.168.0')
     expect(supportedVersionRange('claude')).toBe('>=2.1.220 <2.2.0')
     expect(supportedVersionRange('fake')).toBeNull()
   })
 
-  it('admits the Codex minors whose protocol was compared, and nothing outside them', () => {
-    // Both ends were run against the real product; the minors between rest on the
-    // schema comparison, and the boundaries are the whole point of a spanning range.
-    expect(compatibilityFor('codex', '0.147.0', false)).toBe('supported')
-    expect(compatibilityFor('codex', '0.150.2', false)).toBe('supported')
-    expect(compatibilityFor('codex', '0.153.4', false)).toBe('supported')
-    expect(compatibilityFor('codex', '0.155.1', false)).toBe('supported')
-    expect(compatibilityFor('codex', '0.158.0', false)).toBe('supported')
-    expect(compatibilityFor('codex', '0.161.0', false)).toBe('supported')
-    expect(compatibilityFor('codex', '0.163.0', false)).toBe('supported')
-    expect(compatibilityFor('codex', '0.146.9', false)).toBe('unsupported')
-    expect(compatibilityFor('codex', '0.164.0', false)).toBe('unsupported')
-    expect(compatibilityFor('codex', '0.164.0', true)).toBe('unknown')
+  it('admits only the Codex minor whose schemas are pinned, and nothing outside it', () => {
+    // This fork pins schemas generated from 0.167.1 and admits that minor only:
+    // older releases were compared against 0.163.0 artifacts, not these, and a newer
+    // minor has not been compared at all, so both sides fail closed.
+    expect(compatibilityFor('codex', '0.167.0', false)).toBe('supported')
+    expect(compatibilityFor('codex', '0.167.1', false)).toBe('supported')
+    expect(compatibilityFor('codex', '0.167.9', false)).toBe('supported')
+    expect(compatibilityFor('codex', '0.163.0', false)).toBe('unsupported')
+    expect(compatibilityFor('codex', '0.166.4', false)).toBe('unsupported')
+    expect(compatibilityFor('codex', '0.168.0', false)).toBe('unsupported')
+    expect(compatibilityFor('codex', '0.168.0', true)).toBe('unknown')
   })
 
   it('rejects unsupported versions unless experimental compatibility is enabled', () => {
     // Far outside the range on purpose. This test is about the experimental switch,
     // not the boundary — the boundary has its own test — and a version just past the
     // current upper bound fell inside it at every widening.
-    expect(compatibilityFor('codex', '0.147.9', false)).toBe('supported')
+    expect(compatibilityFor('codex', '0.167.1', false)).toBe('supported')
     expect(compatibilityFor('codex', '0.200.0', false)).toBe('unsupported')
     expect(compatibilityFor('codex', '0.200.0', true)).toBe('unknown')
     expect(compatibilityFor('claude', null, false)).toBe('unknown')

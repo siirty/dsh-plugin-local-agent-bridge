@@ -6,16 +6,16 @@ import type {
   SubprocessHandle,
   SubprocessRuntime,
 } from '@deepseek-ai/dsh-subprocess'
-import agentMessageDeltaSchema from '../../generated/codex/0.163.0/schema/v2/AgentMessageDeltaNotification.json'
-import commandApprovalSchema from '../../generated/codex/0.163.0/schema/CommandExecutionRequestApprovalParams.json'
-import fileApprovalSchema from '../../generated/codex/0.163.0/schema/FileChangeRequestApprovalParams.json'
-import itemCompletedSchema from '../../generated/codex/0.163.0/schema/v2/ItemCompletedNotification.json'
-import itemStartedSchema from '../../generated/codex/0.163.0/schema/v2/ItemStartedNotification.json'
-import reasoningDeltaSchema from '../../generated/codex/0.163.0/schema/v2/ReasoningSummaryTextDeltaNotification.json'
-import turnCompletedSchema from '../../generated/codex/0.163.0/schema/v2/TurnCompletedNotification.json'
-import userInputSchema from '../../generated/codex/0.163.0/schema/ToolRequestUserInputParams.json'
-import mcpElicitationSchema from '../../generated/codex/0.163.0/schema/McpServerElicitationRequestParams.json'
-import permissionsApprovalSchema from '../../generated/codex/0.163.0/schema/PermissionsRequestApprovalParams.json'
+import agentMessageDeltaSchema from '../../generated/codex/0.167.1/schema/v2/AgentMessageDeltaNotification.json'
+import commandApprovalSchema from '../../generated/codex/0.167.1/schema/CommandExecutionRequestApprovalParams.json'
+import fileApprovalSchema from '../../generated/codex/0.167.1/schema/FileChangeRequestApprovalParams.json'
+import itemCompletedSchema from '../../generated/codex/0.167.1/schema/v2/ItemCompletedNotification.json'
+import itemStartedSchema from '../../generated/codex/0.167.1/schema/v2/ItemStartedNotification.json'
+import reasoningDeltaSchema from '../../generated/codex/0.167.1/schema/v2/ReasoningSummaryTextDeltaNotification.json'
+import turnCompletedSchema from '../../generated/codex/0.167.1/schema/v2/TurnCompletedNotification.json'
+import userInputSchema from '../../generated/codex/0.167.1/schema/ToolRequestUserInputParams.json'
+import mcpElicitationSchema from '../../generated/codex/0.167.1/schema/McpServerElicitationRequestParams.json'
+import permissionsApprovalSchema from '../../generated/codex/0.167.1/schema/PermissionsRequestApprovalParams.json'
 import { BridgeError } from '../core/errors.ts'
 import type {
   BridgeEventDraft,
@@ -201,6 +201,9 @@ const MODEL_LIMIT = 32
  *
  * `never` genuinely stops Codex asking, so the browser is never prompted.
  */
+/** Sandbox modes Codex's App Server accepts on `thread/start` and `thread/resume`. */
+export type CodexSandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access'
+
 const CODEX_APPROVAL_POLICIES: Partial<Record<BridgePermissionMode, 'untrusted' | 'on-request' | 'never'>> = {
   auto: 'on-request',
   manual: 'untrusted',
@@ -703,10 +706,17 @@ export class CodexProviderAdapter implements NativeProviderAdapter {
   private epoch = 0
   private disposed = false
 
+  /**
+   * @param sandbox - sandbox mode sent on every thread start and resume, or null
+   *   to leave Codex on whatever its own config says. A fork addition: the bridge
+   *   otherwise sets only the approval policy, so `bypass` (`never`) would run
+   *   under whatever sandbox the Host's `config.toml` happened to hold.
+   */
   constructor(
     private readonly subprocess: SubprocessRuntime,
     private readonly executable: string,
     private readonly graceMs = 3_000,
+    private readonly sandbox: CodexSandboxMode | null = null,
   ) {}
 
   async startTurn({ text, images, hooks }: ProviderTurnRequest): Promise<void> {
@@ -991,12 +1001,14 @@ export class CodexProviderAdapter implements NativeProviderAdapter {
           cwd: hooks.cwd,
           ephemeral: false,
           approvalsReviewer: 'user',
+          ...this.sandbox === null ? {} : { sandbox: this.sandbox },
         }, hooks.signal), 'thread/start response')
       : object(await connection.transport.request('thread/resume', {
           threadId: state.threadId,
           cwd: hooks.cwd,
           excludeTurns: true,
           approvalsReviewer: 'user',
+          ...this.sandbox === null ? {} : { sandbox: this.sandbox },
         }, hooks.signal), 'thread/resume response')
     const thread = object(response.thread, 'thread response') as unknown as CodexThread
     const threadId = string(thread.id, 'thread id')

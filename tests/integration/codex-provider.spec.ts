@@ -545,3 +545,23 @@ describe('CodexProviderAdapter', () => {
     await adapter.dispose()
   })
 })
+
+describe('CodexProviderAdapter sandbox (fork)', () => {
+  it('sends no sandbox when none is configured, leaving the Host config in force', async () => {
+    const runtime = new FakeCodexRuntime()
+    const adapter = new CodexProviderAdapter(runtime.subprocess, 'codex')
+    await adapter.startTurn({ text: 'turn', images: [], hooks: createHooks().hooks })
+    const start = runtime.latest().requests.find(request => request.method === 'thread/start')
+    expect(start?.params).not.toHaveProperty('sandbox')
+    await adapter.dispose()
+  })
+
+  it('sends the configured sandbox on thread start', async () => {
+    const runtime = new FakeCodexRuntime()
+    const adapter = new CodexProviderAdapter(runtime.subprocess, 'codex', 3_000, 'workspace-write')
+    await adapter.startTurn({ text: 'turn', images: [], hooks: createHooks().hooks })
+    const start = runtime.latest().requests.find(request => request.method === 'thread/start')
+    expect(start?.params).toMatchObject({ sandbox: 'workspace-write' })
+    await adapter.dispose()
+  })
+})

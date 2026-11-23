@@ -1,0 +1,19 @@
+# Fork profile override for a remote workstation Host (SSH tunnel / Tailscale).
+# A patch replaces the complete config block, so every key is listed.
+# The values shown are this fork's defaults, stated explicitly so a later
+# default change cannot quietly loosen a deployed Profile.
+- id: local-agent-bridge
+  config:
+    allowExperimentalVersions: false
+    allowBypassMode: false
+    codexSandbox: workspace-write
+    allowHostBrowsing: false
+    allowWorkspaceWrites: true
+    enableDictation: false
+    enableFakeProvider: false
+    panelLockAbsoluteMs: 28800000
+    panelLockIdleMs: 1800000
+    panelPasswordMinLength: 12
+    eventRetention: 2000
+    longPollMaxMs: 25000
+    processGraceMs: 3000

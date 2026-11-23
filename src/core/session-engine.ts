@@ -68,6 +68,13 @@ export interface SessionEngineOptions {
   readonly eventRetention?: number
   readonly longPollMaxMs?: number
   /**
+   * Whether a turn may run in `bypass`. Defaults to true for compatibility; the
+   * service passes its config. When false, a record still carrying `bypass` (set
+   * before the switch was turned off) runs as `manual` instead — failing towards
+   * asking, never towards skipping approval.
+   */
+  readonly allowBypassMode?: boolean
+  /**
    * Reads a working directory's version-control state, when the composition can.
    *
    * Optional so a Profile without a process runtime — or a test — simply reports no
@@ -241,6 +248,14 @@ export class BridgeSessionEngine {
     this.readFileDiff = options.readFileDiff
     this.eventRetention = options.eventRetention ?? DEFAULT_EVENT_RETENTION
     this.longPollMaxMs = options.longPollMaxMs ?? DEFAULT_LONG_POLL_MAX_MS
+    this.allowBypassMode = options.allowBypassMode ?? true
+  }
+
+  private readonly allowBypassMode: boolean
+
+  private effectivePermissionMode(mode: BridgePermissionMode | undefined): BridgePermissionMode {
+    const chosen = mode ?? 'auto'
+    return chosen === 'bypass' && !this.allowBypassMode ? 'manual' : chosen
   }
 
   static async create(options: SessionEngineOptions): Promise<BridgeSessionEngine> {
@@ -985,7 +1000,7 @@ export class BridgeSessionEngine {
           bridgeTurnId: turn.bridgeTurnId,
           cwd: (await this.requireWorkspace(runtime.record.workspaceId)).cwd,
           nativeSessionLocator: runtime.record.nativeSessionLocator,
-          permissionMode: runtime.record.permissionMode ?? 'auto',
+          permissionMode: this.effectivePermissionMode(runtime.record.permissionMode),
           model: runtime.record.model ?? null,
           effort: runtime.record.effort ?? null,
           signal: controller.signal,
